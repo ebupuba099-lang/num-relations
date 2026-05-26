@@ -739,7 +739,7 @@ function parseSporttery(json) {
 }
 
 // 从JSONBin读取数据
-async function fetchFromJSONBin() {
+async function fetchFromGist() {
   try {
     const resp = await fetch(GIST_URL, {
       headers: { 'Authorization': 'token ' + GIST_TOKEN }
@@ -747,9 +747,9 @@ async function fetchFromJSONBin() {
     const json = await resp.json();
     const fileContent = json.files[GIST_FILENAME].content;
     const parsed = JSON.parse(fileContent);
-    return json.record && json.record.records ? json.record.records : null;
+    return parsed.records || null;
   } catch (e) {
-    console.log('JSONBin fetch failed:', e);
+    console.log('Gist fetch failed:', e);
     return null;
   }
 }
@@ -821,7 +821,7 @@ let data = [];
 
 // 初始化：从JSONBin加载数据
 async function initData() {
-  const records = await fetchFromJSONBin();
+  const records = await fetchFromGist();
   if (records && records.length > 0) {
     data = records;
   } else {
