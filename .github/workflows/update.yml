@@ -1,7 +1,6 @@
-name: 四数关系分析每日更新
+name: 四数关系分析更新
 on:
   schedule:
-    # 每天21:40 (UTC+8) = UTC 13:40
     - cron: '40 13 * * *'
   workflow_dispatch:
 
@@ -17,3 +16,29 @@ jobs:
         env:
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
         run: python scripts/update.py
+      - name: 同步数据到仓库
+        env:
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_ID: b63a528e91eba6d15dd3da06056dab0f
+        run: |
+          python3 -c "
+          import json, urllib.request, os
+          req = urllib.request.Request(
+              f'https://api.github.com/gists/' + os.environ['GIST_ID'],
+              headers={'Authorization': 'token ' + os.environ['GIST_TOKEN']}
+          )
+          resp = urllib.request.urlopen(req)
+          data = json.loads(resp.read())
+          content = data['files']['relations_data.json']['content']
+          os.makedirs('data', exist_ok=True)
+          with open('data/relations_data.json', 'w') as f:
+              f.write(content)
+          print('Synced data from Gist')
+          "
+      - name: 提交并推送
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/relations_data.json
+          git diff --cached --quiet || git commit -m "auto: sync data from Gist"
+          git push
