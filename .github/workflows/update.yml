@@ -1,0 +1,19 @@
+name: 四数关系分析每日更新
+on:
+  schedule:
+    # 每天21:40 (UTC+8) = UTC 13:40
+    - cron: '40 13 * * *'
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 执行更新脚本
+        env:
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+        run: python scripts/update.py
