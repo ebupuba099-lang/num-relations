@@ -693,13 +693,7 @@ const originalData = [
 ];
 
 // JSONBin配置
-const GIST_TOKEN = 'ghp_TnwoxT' + 'oiMPw48ktn' + 'gH8bvTyKiidBIh0ZDW4v';
-const GIST_ID = 'b63a528e91eba6d15dd3da06056dab0f';
-const GIST_FILENAME = 'relations_data.json';
-const GIST_URL = 'https://api.github.com/gists/' + GIST_ID;
-const GIST_RAW_URL = 'https://gist.githubusercontent.com/ebupuba099-lang/' + GIST_ID + '/raw/' + GIST_FILENAME;
 const LOCAL_DATA_URL = 'data/relations_data.json';
-const GIST_RAW_URL = 'https://gist.githubusercontent.com/ebupuba099-lang/' + GIST_ID + '/raw/' + GIST_FILENAME;
 
 // 多API获取排列五数据
 const LOTTERY_APIS = [
@@ -741,62 +735,19 @@ function parseSporttery(json) {
   return results;
 }
 
-// 从Gist读取数据（优先同域文件 → raw URL → API）
+// 从同域数据文件加载（GitHub Actions自动更新）
 async function fetchFromGist() {
-  // 方案1: 同域静态文件（GitHub Actions自动更新，100%可访问）
   try {
     const resp = await fetch(LOCAL_DATA_URL + '?t=' + Date.now());
     if (resp.ok) {
       const parsed = await resp.json();
       if (parsed.records) return parsed.records;
     }
-  } catch(e) { console.warn('同域文件失败:', e); }
-  // 方案2: raw URL（公开Gist，无需Token）
-  try {
-    const resp = await fetch(GIST_RAW_URL);
-    if (resp.ok) {
-      const parsed = await resp.json();
-      if (parsed.records) return parsed.records;
-    }
-  } catch(e) { console.warn('Raw URL失败:', e); }
-  // 方案3: API fallback
-  try {
-    const resp = await fetch(GIST_URL, {
-      headers: { 'Authorization': 'token ' + GIST_TOKEN }
-    });
-    const json = await resp.json();
-    const fileContent = json.files[GIST_FILENAME].content;
-    const parsed = JSON.parse(fileContent);
-    return parsed.records || null;
-  } catch (e) {
-    console.log('Gist fetch failed:', e);
-    return null;
-  }
+  } catch(e) { console.warn('数据文件加载失败:', e); }
+  return null;
 }
 
-// 写入JSONBin
-async function pushToJSONBin(records) {
-  try {
-    const resp = await fetch(GIST_URL, {
-      method: 'PATCH',
-      headers: {
-        'Authorization': 'token ' + GIST_TOKEN,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        files: {
-          [GIST_FILENAME]: {
-            content: JSON.stringify({ records: records })
-          }
-        }
-      })
-    });
-    return resp.ok;
-  } catch (e) {
-    console.log('JSONBin push failed:', e);
-    return false;
-  }
-}
+// 数据写入由GitHub Actions管理，浏览器端不再写入Gist
 
 // 从多个API获取最新数据
 async function fetchLatestData() {
@@ -832,7 +783,6 @@ async function autoUpdate() {
     data.unshift(r);
   }
   // 推送到JSONBin
-  await pushToJSONBin(data);
   // 更新界面
   renderTable();
   updateStaircase();
@@ -994,7 +944,6 @@ function quickAdd() {
   data.unshift({period: maxP + 1, date: today, n1, n2, n3, n4});
   renderTable();
   updateStaircase();
-  pushToJSONBin(data);
   input.value = '';
   });
 }
@@ -1019,7 +968,6 @@ function saveEdit() {
   closeModal();
   renderTable();
   updateStaircase();
-  pushToJSONBin(data);
   });
 }
 
@@ -1034,7 +982,6 @@ function delRecord(idx) {
   data.splice(idx, 1);
   renderTable();
   updateStaircase();
-  pushToJSONBin(data);
   });
 }
 
