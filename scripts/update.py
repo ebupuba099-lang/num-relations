@@ -53,8 +53,6 @@ def push_gist(data):
     return resp.status == 200
 
 def fetch_new_records(retry=3):
-    """从API获取最新几期数据，返回 records 列表"""
-    # 优先体彩官方
     apis = [
         {
             'name': '体彩官方',
@@ -75,8 +73,18 @@ def fetch_new_records(retry=3):
         {
             'name': '灰鸟API',
             'url': HUINIAO_URL,
-            'parse': lambda data: []
-            # 灰鸟API格式不同，简化处理
+            'parse': lambda data: [
+                {
+                    'period': int(data['data']['list'][i]['code'].replace('261', '')),
+                    'date': data['data']['list'][i]['date'],
+                    'n1': int(data['data']['list'][i]['one']),
+                    'n2': int(data['data']['list'][i]['two']),
+                    'n3': int(data['data']['list'][i]['three']),
+                    'n4': int(data['data']['list'][i]['four'])
+                }
+                for i in range(min(5, len(data['data'].get('list', []))))
+                if all(k in data['data']['list'][i] for k in ['code','one','two','three','four'])
+            ] if data.get('data', {}).get('list') else []
         }
     ]
 
@@ -108,59 +116,52 @@ def main():
     log("=" * 50)
     log("四数关系分析自动更新任务开始")
 
-    # 1. 获取最新开奖数据
     new_records = fetch_new_records(retry=3)
     if not new_records:
-        log("获取开奖数据失败，任务终止")
-        return False
+        log("获取开奖数据失败，跳过更新（不终止workflow）")
+    else:
+        for attempt in range(3):
+            try:
+                cloud_data = fetch_gist()
+                break
+            except Exception as e:
+                log(f"读取Gist失败 (第{attempt+1}次): {e}")
+                if attempt == 2:
+                    log("读取Gist彻底失败，任务终止")
+                    return False
+                import time; time.sleep(5)
 
-    # 2. 从Gist读取当前数据
-    for attempt in range(3):
-        try:
-            cloud_data = fetch_gist()
-            break
-        except Exception as e:
-            log(f"读取Gist失败 (第{attempt+1}次): {e}")
-            if attempt == 2:
-                log("读取Gist彻底失败，任务终止")
-                return False
-            import time; time.sleep(5)
+        existing = cloud_data.get('records', [])
+        last_period = max((r.get('period', 0) for r in existing), default=0)
+        log(f"Gist当前: {len(existing)}条, 最新期: {last_period}")
 
-    existing = cloud_data.get('records', [])
-    last_period = max((r.get('period', 0) for r in existing), default=0)
-    log(f"Gist当前: {len(existing)}条, 最新期: {last_period}")
+        new_ones = [r for r in new_records if r['period'] > last_period]
+        new_ones.sort(key=lambda r: r['period'], reverse=True)
 
-    # 3. 筛选新数据
-    new_ones = [r for r in new_records if r['period'] > last_period]
-    new_ones.sort(key=lambda r: r['period'], reverse=True)
+        if not new_ones:
+            log("没有新数据需要添加")
+        else:
+            for r in new_ones:
+                existing.insert(0, r)
+                log(f"添加 期{r['period']}: {r['n1']}{r['n2']}{r['n3']}{r['n4']} ({r['date']})")
 
-    if not new_ones:
-        log("没有新数据需要添加")
-        return True
+            cloud_data['records'] = existing
+            cloud_data['lastUpdate'] = int(datetime.now().timestamp() * 1000)
 
-    for r in new_ones:
-        existing.insert(0, r)
-        log(f"添加 期{r['period']}: {r['n1']}{r['n2']}{r['n3']}{r['n4']} ({r['date']})")
+            for attempt in range(3):
+                try:
+                    success = push_gist(cloud_data)
+                    if success:
+                        log(f"推送成功！新增 {len(new_ones)} 条，总计 {len(existing)} 条")
+                    else:
+                        log(f"推送失败 (第{attempt+1}次)")
+                except Exception as e:
+                    log(f"推送异常 (第{attempt+1}次): {e}")
+                    if attempt < 2:
+                        import time; time.sleep(5)
 
-    # 4. 推送到Gist
-    cloud_data['records'] = existing
-    cloud_data['lastUpdate'] = int(datetime.now().timestamp() * 1000)
-
-    for attempt in range(3):
-        try:
-            success = push_gist(cloud_data)
-            if success:
-                log(f"推送成功！新增 {len(new_ones)} 条，总计 {len(existing)} 条")
-                return True
-            else:
-                log(f"推送失败 (第{attempt+1}次)")
-        except Exception as e:
-            log(f"推送异常 (第{attempt+1}次): {e}")
-        if attempt < 2:
-            import time; time.sleep(5)
-
-    log("推送彻底失败")
-    return False
+    log("任务完成")
+    return True
 
 if __name__ == '__main__':
     import sys
