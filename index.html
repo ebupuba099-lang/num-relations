@@ -694,9 +694,11 @@ const originalData = [
 
 // JSONBin配置
 const GIST_TOKEN = 'ghp_TnwoxT' + 'oiMPw48ktn' + 'gH8bvTyKiidBIh0ZDW4v';
-const GIST_ID = '0044814f43d784abd13ff470eb9d7951';
+const GIST_ID = 'b63a528e91eba6d15dd3da06056dab0f';
 const GIST_FILENAME = 'relations_data.json';
 const GIST_URL = 'https://api.github.com/gists/' + GIST_ID;
+const GIST_RAW_URL = 'https://gist.githubusercontent.com/ebupuba099-lang/' + GIST_ID + '/raw/' + GIST_FILENAME;
+const LOCAL_DATA_URL = 'data/relations_data.json';
 const GIST_RAW_URL = 'https://gist.githubusercontent.com/ebupuba099-lang/' + GIST_ID + '/raw/' + GIST_FILENAME;
 
 // 多API获取排列五数据
@@ -739,18 +741,26 @@ function parseSporttery(json) {
   return results;
 }
 
-// 从Gist读取数据（优先raw URL，免认证，国内可访问）
+// 从Gist读取数据（优先同域文件 → raw URL → API）
 async function fetchFromGist() {
+  // 方案1: 同域静态文件（GitHub Actions自动更新，100%可访问）
   try {
-    // 方案1: raw URL（无需Token，走CDN）
+    const resp = await fetch(LOCAL_DATA_URL + '?t=' + Date.now());
+    if (resp.ok) {
+      const parsed = await resp.json();
+      if (parsed.records) return parsed.records;
+    }
+  } catch(e) { console.warn('同域文件失败:', e); }
+  // 方案2: raw URL（公开Gist，无需Token）
+  try {
     const resp = await fetch(GIST_RAW_URL);
     if (resp.ok) {
       const parsed = await resp.json();
       if (parsed.records) return parsed.records;
     }
-  } catch(e) { console.warn('Raw URL读取失败:', e); }
+  } catch(e) { console.warn('Raw URL失败:', e); }
+  // 方案3: API fallback
   try {
-    // 方案2: API fallback
     const resp = await fetch(GIST_URL, {
       headers: { 'Authorization': 'token ' + GIST_TOKEN }
     });
