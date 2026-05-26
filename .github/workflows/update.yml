@@ -1,13 +1,13 @@
-name: 四数关系分析更新
+name: 四数关系更新
 on:
   schedule:
     - cron: '40 13 * * *'
   workflow_dispatch:
 
-jobs:
-
 permissions:
   contents: write
+
+jobs:
   update:
     runs-on: ubuntu-latest
     steps:
@@ -15,7 +15,7 @@ permissions:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: 执行更新脚本
+      - name: 执行数据更新脚本
         env:
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
         run: python scripts/update.py
@@ -24,24 +24,22 @@ permissions:
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
           GIST_ID: b63a528e91eba6d15dd3da06056dab0f
         run: |
+          mkdir -p data
+          curl -s -H "Authorization: token $GIST_TOKEN" \
+            "https://api.github.com/gists/$GIST_ID" > /tmp/gist.json
           python3 -c "
-          import json, urllib.request, os
-          req = urllib.request.Request(
-              f'https://api.github.com/gists/' + os.environ['GIST_ID'],
-              headers={'Authorization': 'token ' + os.environ['GIST_TOKEN']}
-          )
-          resp = urllib.request.urlopen(req)
-          data = json.loads(resp.read())
+          import json
+          with open('/tmp/gist.json') as f:
+              data = json.load(f)
           content = data['files']['relations_data.json']['content']
-          os.makedirs('data', exist_ok=True)
           with open('data/relations_data.json', 'w') as f:
               f.write(content)
-          print('Synced data from Gist')
+          print('Synced data/relations_data.json from Gist')
           "
       - name: 提交并推送
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/relations_data.json
-          git diff --cached --quiet || git commit -m "auto: sync data from Gist"
+          git diff --cached --quiet || git commit -m "auto: sync data from Gist [update]"
           git push
