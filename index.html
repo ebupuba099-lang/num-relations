@@ -697,6 +697,7 @@ const GIST_TOKEN = 'ghp_TnwoxT' + 'oiMPw48ktn' + 'gH8bvTyKiidBIh0ZDW4v';
 const GIST_ID = '0044814f43d784abd13ff470eb9d7951';
 const GIST_FILENAME = 'relations_data.json';
 const GIST_URL = 'https://api.github.com/gists/' + GIST_ID;
+const GIST_RAW_URL = 'https://gist.githubusercontent.com/ebupuba099-lang/' + GIST_ID + '/raw/' + GIST_FILENAME;
 
 // 多API获取排列五数据
 const LOTTERY_APIS = [
@@ -738,9 +739,18 @@ function parseSporttery(json) {
   return results;
 }
 
-// 从JSONBin读取数据
+// 从Gist读取数据（优先raw URL，免认证，国内可访问）
 async function fetchFromGist() {
   try {
+    // 方案1: raw URL（无需Token，走CDN）
+    const resp = await fetch(GIST_RAW_URL);
+    if (resp.ok) {
+      const parsed = await resp.json();
+      if (parsed.records) return parsed.records;
+    }
+  } catch(e) { console.warn('Raw URL读取失败:', e); }
+  try {
+    // 方案2: API fallback
     const resp = await fetch(GIST_URL, {
       headers: { 'Authorization': 'token ' + GIST_TOKEN }
     });
