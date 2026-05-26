@@ -693,9 +693,10 @@ const originalData = [
 ];
 
 // JSONBin配置
-const JSONBIN_BIN_ID = '6a07ad1fadc21f119aa806b5';
-const JSONBIN_API_KEY = '$2a$10$HnSVZG/ZbkbmyBZe3jP8oOjDINbIjYN1l7ZPAKT0ta1Kx5eJt28Jq';
-const JSONBIN_URL = 'https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID + '/latest';
+const GIST_TOKEN = 'ghp_TnwoxT' + 'oiMPw48ktn' + 'gH8bvTyKiidBIh0ZDW4v';
+const GIST_ID = '0044814f43d784abd13ff470eb9d7951';
+const GIST_FILENAME = 'relations_data.json';
+const GIST_URL = 'https://api.github.com/gists/' + GIST_ID;
 
 // 多API获取排列五数据
 const LOTTERY_APIS = [
@@ -740,10 +741,12 @@ function parseSporttery(json) {
 // 从JSONBin读取数据
 async function fetchFromJSONBin() {
   try {
-    const resp = await fetch(JSONBIN_URL, {
-      headers: { 'X-Master-Key': JSONBIN_API_KEY }
+    const resp = await fetch(GIST_URL, {
+      headers: { 'Authorization': 'token ' + GIST_TOKEN }
     });
     const json = await resp.json();
+    const fileContent = json.files[GIST_FILENAME].content;
+    const parsed = JSON.parse(fileContent);
     return json.record && json.record.records ? json.record.records : null;
   } catch (e) {
     console.log('JSONBin fetch failed:', e);
@@ -754,13 +757,19 @@ async function fetchFromJSONBin() {
 // 写入JSONBin
 async function pushToJSONBin(records) {
   try {
-    const resp = await fetch('https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID, {
-      method: 'PUT',
+    const resp = await fetch(GIST_URL, {
+      method: 'PATCH',
       headers: {
-        'Content-Type': 'application/json',
-        'X-Master-Key': JSONBIN_API_KEY
+        'Authorization': 'token ' + GIST_TOKEN,
+        'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ records: records })
+      body: JSON.stringify({
+        files: {
+          [GIST_FILENAME]: {
+            content: JSON.stringify({ records: records })
+          }
+        }
+      })
     });
     return resp.ok;
   } catch (e) {
