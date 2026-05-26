@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 
 # ========== 配置 ==========
 GIST_TOKEN = os.environ.get('GIST_TOKEN', '')
-GIST_ID = '0044814f43d784abd13ff470eb9d7951'
+GIST_ID = 'b63a528e91eba6d15dd3da06056dab0f'
 GIST_FILENAME = 'relations_data.json'
 GIST_API = f'https://api.github.com/gists/{GIST_ID}'
 
