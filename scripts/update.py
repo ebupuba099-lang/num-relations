@@ -2,19 +2,19 @@
 # -*- coding: utf-8 -*-
 """
 四数关系分析 - 每日自动更新脚本
-每天21:40执行：从体彩官方API获取最新开奖号码(前4位) → 添加到Gist → 同步
+直接用GitHub Contents API读写repo数据文件，不再依赖Gist
 """
 
 import json
 import os
+import base64
 from datetime import datetime
 from urllib.request import Request, urlopen
 
 # ========== 配置 ==========
-GIST_TOKEN = os.environ.get('GIST_TOKEN', '')
-GIST_ID = 'b63a528e91eba6d15dd3da06056dab0f'
-GIST_FILENAME = 'relations_data.json'
-GIST_API = f'https://api.github.com/gists/{GIST_ID}'
+GH_TOKEN = os.environ.get('GH_TOKEN', os.environ.get('GIST_TOKEN', ''))
+REPO = 'ebupuba099-lang/num-relations'
+DATA_FILE = 'data/relations_data.json'
 
 # 体彩官方API - 排列五
 SPORTTERY_URL = 'https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.qry?gameNo=350133&provinceId=0&pageSize=5&is11=0'
@@ -25,141 +25,159 @@ def log(msg):
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"[{now}] {msg}", flush=True)
 
-def fetch_gist():
-    headers = {'User-Agent': 'Python'}
-    if GIST_TOKEN:
-        headers['Authorization'] = f'token {GIST_TOKEN}'
-    req = Request(GIST_API, headers=headers)
+def load_data():
+    headers = {'Authorization': f'token {GH_TOKEN}', 'Accept': 'application/vnd.github.v3.raw'}
+    req = Request(f'https://api.github.com/repos/{REPO}/contents/{DATA_FILE}', headers=headers)
     resp = urlopen(req, timeout=30)
-    data = json.loads(resp.read().decode('utf-8'))
-    content = data['files'][GIST_FILENAME]['content']
-    return json.loads(content)
+    return json.loads(resp.read().decode('utf-8'))
 
-def push_gist(data):
-    body = json.dumps({
-        'files': {
-            GIST_FILENAME: {
-                'content': json.dumps(data, ensure_ascii=False, indent=2)
-            }
-        }
-    }).encode('utf-8')
+def save_data(data):
     headers = {
-        'Authorization': f'token {GIST_TOKEN}',
-        'Content-Type': 'application/json',
-        'User-Agent': 'Python'
+        'Authorization': f'token {GH_TOKEN}',
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json'
     }
-    req = Request(GIST_API, data=body, method='PATCH', headers=headers)
-    resp = urlopen(req, timeout=30)
+    # 获取当前SHA
+    sha_req = Request(f'https://api.github.com/repos/{REPO}/contents/{DATA_FILE}', headers=headers)
+    sha_resp = urlopen(sha_req, timeout=30)
+    sha = json.loads(sha_resp.read().decode('utf-8'))['sha']
+    
+    content = json.dumps(data, ensure_ascii=False)
+    b64 = base64.b64encode(content.encode('utf-8')).decode()
+    body = json.dumps({'message': 'auto: update num-relations data', 'content': b64, 'sha': sha}).encode('utf-8')
+    put_req = Request(f'https://api.github.com/repos/{REPO}/contents/{DATA_FILE}', data=body, method='PUT', headers=headers)
+    resp = urlopen(put_req, timeout=30)
     return resp.status == 200
 
-def fetch_new_records(retry=3):
-    apis = [
-        {
-            'name': '体彩官方',
-            'url': SPORTTERY_URL,
-            'parse': lambda data: [
-                {
-                    'period': int(item['lotteryDrawNum']),
-                    'date': item['lotteryDrawTime'],
-                    'n1': int(item['lotteryDrawResult'].split()[0]),
-                    'n2': int(item['lotteryDrawResult'].split()[1]),
-                    'n3': int(item['lotteryDrawResult'].split()[2]),
-                    'n4': int(item['lotteryDrawResult'].split()[3])
-                }
-                for item in data.get('value', {}).get('list', [])
-                if len(item.get('lotteryDrawResult', '').split()) >= 5
-            ]
-        },
-        {
-            'name': '灰鸟API',
-            'url': HUINIAO_URL,
-            'parse': lambda data: [
-                {
-                    'period': int(data['data']['list'][i]['code'].replace('261', '')),
-                    'date': data['data']['list'][i]['date'],
-                    'n1': int(data['data']['list'][i]['one']),
-                    'n2': int(data['data']['list'][i]['two']),
-                    'n3': int(data['data']['list'][i]['three']),
-                    'n4': int(data['data']['list'][i]['four'])
-                }
-                for i in range(min(5, len(data['data'].get('list', []))))
-                if all(k in data['data']['list'][i] for k in ['code','one','two','three','four'])
-            ] if data.get('data', {}).get('list') else []
-        }
-    ]
-
-    for api in apis:
-        for attempt in range(retry):
-            try:
-                req = Request(api['url'], headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                    'Referer': 'https://www.lottery.gov.cn/'
+def fetch_new_records():
+    """从多个API获取最新开奖记录"""
+    
+    # 方案1: 体彩官方API
+    try:
+        req = Request(SPORTTERY_URL, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://www.lottery.gov.cn/',
+            'Accept': 'application/json'
+        })
+        resp = urlopen(req, timeout=15)
+        data = json.loads(resp.read().decode('utf-8'))
+        if data.get('value') and data['value'].get('list'):
+            records = []
+            for item in data['value']['list']:
+                result = item.get('lotteryDrawResult', '')
+                parts = result.split()
+                if len(parts) >= 4:
+                    draw_num = item.get('lotteryDrawNum', '')
+                    # 期号格式: "26137" → 26137
+                    period = int(draw_num) if draw_num else 0
+                    records.append({
+                        'period': period,
+                        'date': item.get('lotteryDrawTime', ''),
+                        'n1': int(parts[0]),
+                        'n2': int(parts[1]),
+                        'n3': int(parts[2]),
+                        'n4': int(parts[3])
+                    })
+            if records:
+                log(f"体彩官方获取成功: {len(records)}期")
+                for r in records[:3]:
+                    log(f"  期{r['period']} {r['n1']}{r['n2']}{r['n3']}{r['n4']}")
+                return records
+    except Exception as e:
+        log(f"体彩官方失败: {e}")
+    
+    # 方案2: 灰鸟API
+    try:
+        req = Request(HUINIAO_URL, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+        resp = urlopen(req, timeout=15)
+        data = json.loads(resp.read().decode('utf-8'))
+        records = []
+        d = data.get('data', {})
+        # 灰鸟API结构: data.data.list 或 data.last
+        items = []
+        if isinstance(d, dict):
+            if d.get('data') and isinstance(d['data'], dict) and d['data'].get('list'):
+                items = d['data']['list']
+            elif d.get('last'):
+                items = [d['last']]
+        elif isinstance(d, list):
+            items = d
+        
+        for item in items:
+            code = item.get('code', '')
+            if not code:
+                continue
+            one = item.get('one', '')
+            two = item.get('two', '')
+            three = item.get('three', '')
+            four = item.get('four', '')
+            if one and two and three and four:
+                period = int(code)  # "26137" → 26137
+                records.append({
+                    'period': period,
+                    'date': item.get('day', item.get('date', '')),
+                    'n1': int(one),
+                    'n2': int(two),
+                    'n3': int(three),
+                    'n4': int(four)
                 })
-                resp = urlopen(req, timeout=15)
-                data = json.loads(resp.read().decode('utf-8'))
-                records = api['parse'](data)
-                if records:
-                    log(f"{api['name']}获取成功: {len(records)}期")
-                    for r in records[:3]:
-                        log(f"  期{r['period']} {r['n1']}{r['n2']}{r['n3']}{r['n4']}")
-                    return records
-                else:
-                    log(f"{api['name']}: 无数据")
-                    break
-            except Exception as e:
-                log(f"{api['name']}失败 (第{attempt+1}次): {e}")
-                if attempt < retry - 1:
-                    import time; time.sleep(5)
+        if records:
+            log(f"灰鸟API获取成功: {len(records)}期")
+            for r in records[:3]:
+                log(f"  期{r['period']} {r['n1']}{r['n2']}{r['n3']}{r['n4']}")
+            return records
+    except Exception as e:
+        log(f"灰鸟API失败: {e}")
+    
     return []
 
 def main():
     log("=" * 50)
     log("四数关系分析自动更新任务开始")
-
-    new_records = fetch_new_records(retry=3)
+    
+    new_records = fetch_new_records()
     if not new_records:
-        log("获取开奖数据失败，跳过更新（不终止workflow）")
+        log("获取开奖数据失败，跳过更新")
+        return True
+    
+    try:
+        cloud_data = load_data()
+    except Exception as e:
+        log(f"读取数据失败: {e}")
+        return False
+    
+    existing = cloud_data.get('records', [])
+    last_period = max((r.get('period', 0) for r in existing), default=0)
+    log(f"当前: {len(existing)}条, 最新期: {last_period}")
+    
+    new_ones = [r for r in new_records if r['period'] > last_period]
+    new_ones.sort(key=lambda r: r['period'], reverse=True)
+    
+    if not new_ones:
+        log("没有新数据需要添加")
     else:
-        for attempt in range(3):
-            try:
-                cloud_data = fetch_gist()
-                break
-            except Exception as e:
-                log(f"读取Gist失败 (第{attempt+1}次): {e}")
-                if attempt == 2:
-                    log("读取Gist彻底失败，任务终止")
-                    return False
-                import time; time.sleep(5)
-
-        existing = cloud_data.get('records', [])
-        last_period = max((r.get('period', 0) for r in existing), default=0)
-        log(f"Gist当前: {len(existing)}条, 最新期: {last_period}")
-
-        new_ones = [r for r in new_records if r['period'] > last_period]
-        new_ones.sort(key=lambda r: r['period'], reverse=True)
-
-        if not new_ones:
-            log("没有新数据需要添加")
+        for r in new_ones:
+            existing.insert(0, r)
+            log(f"添加 期{r['period']}: {r['n1']}{r['n2']}{r['n3']}{r['n4']} ({r['date']})")
+        
+        # 最多保留100条
+        if len(existing) > 100:
+            cloud_data['records'] = existing[:100]
         else:
-            for r in new_ones:
-                existing.insert(0, r)
-                log(f"添加 期{r['period']}: {r['n1']}{r['n2']}{r['n3']}{r['n4']} ({r['date']})")
-
             cloud_data['records'] = existing
-            cloud_data['lastUpdate'] = int(datetime.now().timestamp() * 1000)
-
-            for attempt in range(3):
-                try:
-                    success = push_gist(cloud_data)
-                    if success:
-                        log(f"推送成功！新增 {len(new_ones)} 条，总计 {len(existing)} 条")
-                    else:
-                        log(f"推送失败 (第{attempt+1}次)")
-                except Exception as e:
-                    log(f"推送异常 (第{attempt+1}次): {e}")
-                    if attempt < 2:
-                        import time; time.sleep(5)
-
+        cloud_data['lastUpdate'] = int(datetime.now().timestamp() * 1000)
+        
+        try:
+            success = save_data(cloud_data)
+            if success:
+                log(f"推送成功！新增 {len(new_ones)} 条，总计 {len(cloud_data['records'])} 条")
+            else:
+                log("推送失败")
+        except Exception as e:
+            log(f"推送异常: {e}")
+    
     log("任务完成")
     return True
 
