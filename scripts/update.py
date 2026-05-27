@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 四数关系分析 - 每日自动更新脚本
-直接用GitHub Contents API读写repo数据文件，不再依赖Gist
+直接用GitHub Contents API读写repo数据文件
 """
 
 import json
@@ -16,9 +16,7 @@ GH_TOKEN = os.environ.get('GH_TOKEN', os.environ.get('GIST_TOKEN', ''))
 REPO = 'ebupuba099-lang/num-relations'
 DATA_FILE = 'data/relations_data.json'
 
-# 体彩官方API - 排列五
 SPORTTERY_URL = 'https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.qry?gameNo=350133&provinceId=0&pageSize=5&is11=0'
-# 灰鸟API - 备用
 HUINIAO_URL = 'http://api.huiniao.top/interface/home/lotteryHistory?type=plw&page=1&limit=5'
 
 def log(msg):
@@ -37,7 +35,6 @@ def save_data(data):
         'Accept': 'application/vnd.github.v3+json',
         'Content-Type': 'application/json'
     }
-    # 获取当前SHA
     sha_req = Request(f'https://api.github.com/repos/{REPO}/contents/{DATA_FILE}', headers=headers)
     sha_resp = urlopen(sha_req, timeout=30)
     sha = json.loads(sha_resp.read().decode('utf-8'))['sha']
@@ -51,8 +48,6 @@ def save_data(data):
 
 def fetch_new_records():
     """从多个API获取最新开奖记录"""
-    
-    # 方案1: 体彩官方API
     try:
         req = Request(SPORTTERY_URL, headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -67,9 +62,7 @@ def fetch_new_records():
                 result = item.get('lotteryDrawResult', '')
                 parts = result.split()
                 if len(parts) >= 4:
-                    draw_num = item.get('lotteryDrawNum', '')
-                    # 期号格式: "26137" → 26137
-                    period = int(draw_num) if draw_num else 0
+                    period = int(item.get('lotteryDrawNum', '0'))
                     records.append({
                         'period': period,
                         'date': item.get('lotteryDrawTime', ''),
@@ -86,7 +79,6 @@ def fetch_new_records():
     except Exception as e:
         log(f"体彩官方失败: {e}")
     
-    # 方案2: 灰鸟API
     try:
         req = Request(HUINIAO_URL, headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -95,7 +87,6 @@ def fetch_new_records():
         data = json.loads(resp.read().decode('utf-8'))
         records = []
         d = data.get('data', {})
-        # 灰鸟API结构: data.data.list 或 data.last
         items = []
         if isinstance(d, dict):
             if d.get('data') and isinstance(d['data'], dict) and d['data'].get('list'):
@@ -109,19 +100,12 @@ def fetch_new_records():
             code = item.get('code', '')
             if not code:
                 continue
-            one = item.get('one', '')
-            two = item.get('two', '')
-            three = item.get('three', '')
-            four = item.get('four', '')
+            one, two, three, four = item.get('one',''), item.get('two',''), item.get('three',''), item.get('four','')
             if one and two and three and four:
-                period = int(code)  # "26137" → 26137
                 records.append({
-                    'period': period,
+                    'period': int(code),
                     'date': item.get('day', item.get('date', '')),
-                    'n1': int(one),
-                    'n2': int(two),
-                    'n3': int(three),
-                    'n4': int(four)
+                    'n1': int(one), 'n2': int(two), 'n3': int(three), 'n4': int(four)
                 })
         if records:
             log(f"灰鸟API获取成功: {len(records)}期")
@@ -149,24 +133,21 @@ def main():
         return False
     
     existing = cloud_data.get('records', [])
-    last_period = max((r.get('period', 0) for r in existing), default=0)
-    log(f"当前: {len(existing)}条, 最新期: {last_period}")
-    
-    new_ones = [r for r in new_records if r['period'] > last_period]
-    new_ones.sort(key=lambda r: r['period'], reverse=True)
+    existing_periods = {r['period'] for r in existing}
+    new_ones = [r for r in new_records if r['period'] not in existing_periods]
     
     if not new_ones:
         log("没有新数据需要添加")
     else:
         for r in new_ones:
-            existing.insert(0, r)
+            existing.append(r)
             log(f"添加 期{r['period']}: {r['n1']}{r['n2']}{r['n3']}{r['n4']} ({r['date']})")
         
+        # 按period降序排序
+        existing.sort(key=lambda r: r['period'], reverse=True)
+        
         # 最多保留100条
-        if len(existing) > 100:
-            cloud_data['records'] = existing[:100]
-        else:
-            cloud_data['records'] = existing
+        cloud_data['records'] = existing[:100]
         cloud_data['lastUpdate'] = int(datetime.now().timestamp() * 1000)
         
         try:
