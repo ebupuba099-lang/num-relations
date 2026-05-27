@@ -17,29 +17,5 @@ jobs:
           python-version: '3.11'
       - name: 执行数据更新脚本
         env:
-          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: python scripts/update.py
-      - name: 同步数据到仓库
-        env:
-          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
-          GIST_ID: b63a528e91eba6d15dd3da06056dab0f
-        run: |
-          mkdir -p data
-          curl -s -H "Authorization: token $GIST_TOKEN" \
-            "https://api.github.com/gists/$GIST_ID" > /tmp/gist.json
-          python3 -c "
-          import json
-          with open('/tmp/gist.json') as f:
-              data = json.load(f)
-          content = data['files']['relations_data.json']['content']
-          with open('data/relations_data.json', 'w') as f:
-              f.write(content)
-          print('Synced data/relations_data.json from Gist')
-          "
-      - name: 提交并推送
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/relations_data.json
-          git diff --cached --quiet || git commit -m "auto: sync data from Gist [update]"
-          git push
