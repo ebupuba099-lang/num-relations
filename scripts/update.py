@@ -69,14 +69,23 @@ def fetch_cjcp():
         try:
             html, _ = http_get(url, retries=1)
             if not html or len(html) < 3000: continue
+            
+            # 格式1: 传统文本
             m = re.search(r'第\s*(\d{7})\s*期[\s\S]*?开奖号码[：:]?\s*(\d)\s+(\d)\s+(\d)\s+(\d)\s+(\d)', html)
             if m:
-                period = int(str(m.group(1))[3:])  # 2026168 -> 26168
+                period = int(str(m.group(1))[3:])
                 digits = ''.join(m.groups()[1:5])
+                if valid(period, digits): return digits, period
+            
+            # 格式2: span标签
+            period_m = re.search(r'第(\d{7})期开奖', html)
+            num_ms = re.findall(r'qiu_red\">(\d)</span>', html)
+            if period_m and len(num_ms) >= 5:
+                period = int(str(period_m.group(1))[3:])
+                digits = ''.join(num_ms[:4])
                 if valid(period, digits): return digits, period
         except: continue
     return None, None
-
 def fetch_500():
     try:
         html, _ = http_get('https://datachart.500.com/plw/history/newinc/history.php?start=26001&end=26999')
