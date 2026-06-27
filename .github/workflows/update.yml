@@ -1,7 +1,11 @@
 name: 四数关系更新
+
 on:
   schedule:
-    - cron: '40 13 * * *'
+    - cron: '40 13 * * *'    # UTC 13:40 = 北京时间 21:40
+    - cron: '0 15 * * *'     # UTC 15:00 = 北京时间 23:00
+    - cron: '0 16 * * *'     # UTC 16:00 = 北京时间 00:00
+    - cron: '30 2 * * *'     # UTC 02:30 = 北京时间 10:30
   workflow_dispatch:
 
 permissions:
@@ -15,7 +19,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: 执行数据更新脚本
+      - run: python scripts/update.py
         env:
+          TZ: Asia/Shanghai
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: python scripts/update.py
